@@ -8,6 +8,8 @@ import json
 from threading import Thread
 from queue import Queue
 
+import Hamlib
+
 import ham_alert_client
 import config
 
@@ -17,19 +19,52 @@ class HamAlertClientGUI:
         self._window = tk.Tk()
         self._window.title("HamAlert Client")
 
-        self._alerts_table = ttk.Treeview(self._window, columns=("QTU", "QRA", "QRG", "Mode", "Src", "QTH", "Ref"), show="headings")
-        self._alerts_table.heading("QTU", text="QTU")
-        self._alerts_table.heading("QRA", text="QRA")
-        self._alerts_table.heading("QRG", text="QRG")
-        self._alerts_table.heading("Mode", text="Mode")
-        self._alerts_table.heading("Src", text="Src")
-        self._alerts_table.heading("QTH", text="QTH")
-        self._alerts_table.heading("Ref", text="Ref")
-        self._alerts_table.pack()
+        self._alerts_table = ttk.Treeview(self._window, columns=("time", "callsign", "frequency", "mode", "source", "reference", "qth"), show="headings", selectmode="browse")
+
+        self._alerts_table.heading("time", text="QTU")
+        self._alerts_table.column("time", width=80, stretch=False)
+        self._alerts_table.heading("callsign", text="QRA")
+        self._alerts_table.column("callsign", width=100, stretch=False)
+        self._alerts_table.heading("frequency", text="QRG")
+        self._alerts_table.column("frequency", width=80, stretch=False, anchor="e")
+        self._alerts_table.heading("mode", text="Mode")
+        self._alerts_table.column("mode", width=80, stretch=False)
+        self._alerts_table.heading("source", text="Src")
+        self._alerts_table.column("source", width=100, stretch=False)
+        self._alerts_table.heading("reference", text="Ref")
+        self._alerts_table.column("reference", width=100, stretch=False)
+        self._alerts_table.heading("qth", text="QTH")
+        self._alerts_table.column("qth", width=100, stretch=True)
+
+        self._alerts_table.pack(fill="both", expand=True)
+        self._alerts_table.bind("<<TreeviewSelect>>", func=self.do_select_alert)
 
         self._action_queue = Queue()
         self._action_event = "<<action>>"
         self._window.bind(self._action_event, self._process_action_queue)
+
+        Hamlib.rig_set_debug(Hamlib.RIG_DEBUG_NONE)
+
+        self._rig = Hamlib.Rig(getattr(Hamlib, "RIG_MODEL_{}".format(config.RIG_MODEL)))
+        self._rig.set_conf("rig_pathname", config.RIG_PATH)
+        self._rig.set_conf("retry", "5")
+        self._rig.set_conf("serial_speed", str(config.RIG_BAUDRATE))
+        self._rig.open()
+
+    def do_select_alert(self, event):
+        index, = self._alerts_table.selection()
+        data = self._alerts_table.item(index)
+        time, callsign, frequency, mode, *_ = data["values"]
+        frequency = int(float(frequency) * 1E6)
+
+        self._rig.set_freq(Hamlib.RIG_VFO_A, frequency)
+        self._rig.set_vfo(Hamlib.RIG_VFO_A)
+
+        if mode.upper() == "SSB":
+            mode = "USB" if frequency >= 1E7 else "LSB"
+
+        mode_id = getattr(Hamlib, "RIG_MODE_{}".format(mode.upper()))
+        self._rig.set_mode(mode_id, -1)
 
     def do_add_alert(self, alert):
         time = alert["time"]
@@ -54,8 +89,8 @@ class HamAlertClientGUI:
             frequency,
             mode,
             source,
-            qth,
             ref,
+            qth,
         ))
 
 
@@ -89,7 +124,6 @@ class HamAlertClientGUI:
 def main():
     gui = HamAlertClientGUI()
     gui.start()
-
 
 
 if __name__ == "__main__":
