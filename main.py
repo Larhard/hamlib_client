@@ -36,8 +36,15 @@ class HamAlertClientGUI:
         self._alerts_table.heading("qth", text="QTH")
         self._alerts_table.column("qth", width=100, stretch=True)
 
-        self._alerts_table.pack(fill="both", expand=True)
         self._alerts_table.bind("<<TreeviewSelect>>", func=self.do_select_alert)
+
+        self._alerts_scrollbar = ttk.Scrollbar(self._window,
+                orient="vertical",
+                command=self._alerts_table.yview)
+        self._alerts_table.configure(yscrollcommand=self._alerts_scrollbar.set)
+
+        self._alerts_table.pack(side="left", fill="both", expand=True)
+        self._alerts_scrollbar.pack(side="left", fill="both")
 
         self._action_queue = Queue()
         self._action_event = "<<action>>"
