@@ -5,12 +5,13 @@ import json
 
 DEFAULT_HOST = "hamalert.org"
 DEFAULT_PORT = 7300
-DEFAULT_LOAD_RECENT_N = 20
+DEFAULT_LOAD_RECENT_N = 40
 
 class Client:
-    def __init__(self, username, password, host=DEFAULT_HOST, port=DEFAULT_PORT):
+    def __init__(self, username, password, host=DEFAULT_HOST, port=DEFAULT_PORT, sources_filter=None):
         self._username = username
         self._password = password
+        self._sources_filter = sources_filter
 
         self._host = host
         self._port = port
@@ -47,9 +48,14 @@ class Client:
             raise RuntimeError("HamAlert client error: {}".format(message.decode()))
 
     def read_alert(self):
-        message = self._client.read_until(b"\n").strip()
-        result = json.loads(message)
-        return result
+        while True:
+            message = self._client.read_until(b"\n").strip()
+            result = json.loads(message)
+
+            if self._sources_filter is not None and result["source"] not in self._sources_filter:
+                    continue
+
+            return result
 
     def __iter__(self):
         return self

@@ -3,3 +3,6 @@ PASSWORD = "***"
 RIG_MODEL = "FT891"
 RIG_PATH = "/dev/ttyUSB0"
 RIG_BAUDRATE = 4800
+
+SOURCES_FILTER = None
+# SOURCES_FILTER = ["pota", "sotawatch"]
