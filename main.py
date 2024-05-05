@@ -21,7 +21,10 @@ class HamAlertClientGUI:
         self._window = tk.Tk()
         self._window.title("HamAlert Client")
 
-        self._alerts_table = ttk.Treeview(self._window, columns=("time", "callsign", "frequency", "mode", "source", "reference", "qth"), show="headings", selectmode="browse")
+        self._menu_frame = ttk.Frame(self._window)
+        self._alerts_frame = ttk.Frame(self._window)
+
+        self._alerts_table = ttk.Treeview(self._alerts_frame, columns=("time", "callsign", "frequency", "mode", "source", "reference", "qth"), show="headings", selectmode="browse")
 
         self._alerts_table.heading("time", text="QTU")
         self._alerts_table.column("time", width=120, stretch=False)
@@ -40,17 +43,23 @@ class HamAlertClientGUI:
 
         self._alerts_table.bind("<<TreeviewSelect>>", func=self.do_select_alert)
 
-        self._alerts_scrollbar = ttk.Scrollbar(self._window,
+        self._alerts_scrollbar = ttk.Scrollbar(self._alerts_frame,
                 orient="vertical",
                 command=self._alerts_table.yview)
         self._alerts_table.configure(yscrollcommand=self._alerts_scrollbar.set)
 
         self._auto_scroll = tk.BooleanVar()
-        self._auto_scroll_checkbox = ttk.Checkbutton(text="Auto-scroll", variable=self._auto_scroll)
+        self._auto_scroll_checkbox = ttk.Checkbutton(self._menu_frame, text="Auto-scroll", variable=self._auto_scroll)
 
+        self._auto_scroll_timeout = tk.StringVar()
+        self._auto_scroll_timeout_input = ttk.Entry(self._menu_frame, textvariable=self._auto_scroll_timeout, state="disabled", foreground="black")
+
+        self._menu_frame.pack(side="left", fill="y", expand=False)
+        self._alerts_frame.pack(side="left", fill="both", expand=True)
         self._alerts_table.pack(side="left", fill="both", expand=True)
-        self._alerts_scrollbar.pack(side="left", fill="both")
+        self._alerts_scrollbar.pack(side="left", fill="y")
         self._auto_scroll_checkbox.pack(side="top")
+        self._auto_scroll_timeout_input.pack(side="top")
 
         self._action_queue = Queue()
         self._action_event = "<<action>>"
@@ -104,9 +113,14 @@ class HamAlertClientGUI:
     def _update_timeout(self, timestamp):
         if self._first_timestamp is None:
             self._first_timestamp = timestamp
+        elif self._timeout_count < 10:
+            self._timeout = ((timestamp - self._first_timestamp) / self._timeout_count).total_seconds()
         else:
-            self._timeout = (timestamp - self._first_timestamp) / self._timeout_count
+            alpha = 0.9
+            delta = (timestamp - self._last_timestamp).total_seconds()
+            self._timeout = self._timeout * alpha  + delta * (1 - alpha)
 
+        self._auto_scroll_timeout.set(self._timeout)
         self._timeout_count += 1
         self._last_timestamp = timestamp
 
@@ -170,7 +184,7 @@ class HamAlertClientGUI:
     def _auto_scroll_job(self):
         while True:
             if self._timeout is not None:
-                time.sleep(self._timeout.total_seconds() * 0.9)
+                time.sleep(self._timeout * 0.9)
             else:
                 time.sleep(1)
 
