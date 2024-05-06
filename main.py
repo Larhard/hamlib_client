@@ -115,22 +115,57 @@ class HamAlertClientGUI:
             for band in BANDS
         }
 
+        self._status_label = ttk.Label(self._menu_frame, text="Status:")
+
+        self._rig_status = tk.IntVar()
+        self._status_rig_frame = ttk.Frame(self._menu_frame)
+        self._status_rig_value_label = ttk.Label(self._status_rig_frame, text="")
+        self._status_rig_label = ttk.Label(self._status_rig_frame, text=" Rig")
+        self._status_rig_value_label.configure(background="yellow", width=2)
+        self._rig_status.trace_add("write", self.do_update_status_rig_value_label)
+
+        self._hamalert_status = tk.IntVar()
+        self._status_hamalert_frame = ttk.Frame(self._menu_frame)
+        self._status_hamalert_value_label = ttk.Label(self._status_hamalert_frame, text="")
+        self._status_hamalert_label = ttk.Label(self._status_hamalert_frame, text=" Ham Alert")
+        self._status_hamalert_value_label.configure(background="yellow", width=2)
+        self._hamalert_status.trace_add("write", self.do_update_status_hamalert_value_label)
+
+        # Layout packing
+
         self._menu_frame.pack(side="left", fill="y", expand=False)
         self._alerts_frame.pack(side="left", fill="both", expand=True)
         self._alerts_table.pack(side="left", fill="both", expand=True)
         self._alerts_scrollbar.pack(side="left", fill="y")
+
         self._auto_scroll_checkbox.pack(side="top", anchor="w")
         self._auto_scroll_timeout_input.pack(side="top", anchor="w")
+
         self._filter_source_label.pack(side="top")
         for source in SOURCES:
             self._filter_source_checkboxes[source].pack(side="top", anchor="w")
+
         self._filter_band_label.pack(side="top")
         for band in BANDS:
             self._filter_band_checkboxes[band].pack(side="top", anchor="w")
 
+        self._status_label.pack(side="top")
+
+        self._status_rig_frame.pack(side="top", anchor="w")
+        self._status_rig_value_label.pack(side="left")
+        self._status_rig_label.pack(side="left")
+
+        #self._status_hamalert_frame.pack(side="top", anchor="w")
+        #self._status_hamalert_value_label.pack(side="left")
+        #self._status_hamalert_label.pack(side="left")
+
+        # Action queue
+
         self._action_queue = Queue()
         self._action_event = "<<action>>"
         self._window.bind(self._action_event, self._process_action_queue)
+
+        # Hamlib
 
         Hamlib.rig_set_debug(Hamlib.RIG_DEBUG_NONE)
 
@@ -146,6 +181,7 @@ class HamAlertClientGUI:
         self._timeout_count = 0
 
         self._watch_alerts_thread = Thread(target=self._watch_alerts_job, daemon=True)
+        self._watch_hamlib_thread = Thread(target=self._watch_hamlib_job, daemon=True)
         self._auto_scroll_thread = Thread(target=self._auto_scroll_job, daemon=True)
 
     def do_select_alert(self, event):
@@ -234,6 +270,20 @@ class HamAlertClientGUI:
         if new_selection:
             self._alerts_table.selection_set(new_selection)
 
+    def do_update_status_rig_value_label(self, variable, index, mode):
+        value = self._rig_status.get()
+        if value == 0:
+            self._status_rig_value_label.configure(background="green")
+        else:
+            self._status_rig_value_label.configure(background="red")
+
+    def do_update_status_hamalert_value_label(self, variable, index, mode):
+        value = self._hamalert_status.get()
+        if value == 0:
+            self._status_hamalert_value_label.configure(background="green")
+        else:
+            self._status_hamalert_value_label.configure(background="red")
+
     def _send_action(self, action, *args, **kwargs):
         data = {
             "action": action,
@@ -263,18 +313,32 @@ class HamAlertClientGUI:
     def _watch_alerts_job(self):
         with ham_alert_client.Client(config.USERNAME, config.PASSWORD) as client:
             for alert in client:
-                band = alert["band"]
-                if not self._filter_band[band].get():
-                    continue
+                try:
+                    band = alert.get("band", None)
+                    if band is not None and not self._filter_band[band].get():
+                        continue
 
-                source = alert["source"]
-                if not self._filter_source[source].get():
-                    continue
+                    source = alert["source"]
+                    if not self._filter_source[source].get():
+                        continue
 
-                self._send_action("do_add_alert", alert=alert)
+                    self._send_action("do_add_alert", alert=alert)
+                except Exception as e:
+                    print("Failed to process alert:")
+                    print(json.dumps(alert, indent=2))
+                    print(repr(e))
+
+    def _watch_hamlib_job(self):
+        while True:
+            status = self._rig.error_status
+            self._rig_status.set(status)
+            if status != 0:
+                self._rig.open()
+            time.sleep(1)
 
     def start(self):
         self._watch_alerts_thread.start()
+        self._watch_hamlib_thread.start()
         self._auto_scroll_thread.start()
 
         self._window.mainloop()
