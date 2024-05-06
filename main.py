@@ -16,6 +16,40 @@ import ham_alert_client
 import config
 
 
+SOURCES = [
+    "pota",
+    "sotawatch",
+    "cluster",
+]
+
+BANDS = [
+    "3cm",
+    "6cm",
+    "9cm",
+    "13cm",
+    "23cm",
+    "70cm",
+    "1.25m",
+    "2m",
+    "4m",
+    "6m",
+    "8m",
+    "10m",
+    "11m",
+    "12m",
+    "15m",
+    "17m",
+    "20m",
+    "30m",
+    "40m",
+    "60m",
+    "80m",
+    "160m",
+    "600m",
+    "2200m",
+]
+
+
 class HamAlertClientGUI:
     def __init__(self):
         self._window = tk.Tk()
@@ -24,18 +58,20 @@ class HamAlertClientGUI:
         self._menu_frame = ttk.Frame(self._window)
         self._alerts_frame = ttk.Frame(self._window)
 
-        self._alerts_table = ttk.Treeview(self._alerts_frame, columns=("time", "callsign", "frequency", "mode", "source", "reference", "qth"), show="headings", selectmode="browse")
+        self._alerts_table = ttk.Treeview(self._alerts_frame, columns=("time", "callsign", "band", "frequency", "mode", "source", "reference", "qth"), show="headings", selectmode="browse")
 
         self._alerts_table.heading("time", text="QTU")
         self._alerts_table.column("time", width=120, stretch=False)
         self._alerts_table.heading("callsign", text="QRA")
         self._alerts_table.column("callsign", width=100, stretch=False)
+        self._alerts_table.heading("band", text="Band")
+        self._alerts_table.column("band", width=60, stretch=False, anchor="e")
         self._alerts_table.heading("frequency", text="QRG")
         self._alerts_table.column("frequency", width=80, stretch=False, anchor="e")
         self._alerts_table.heading("mode", text="Mode")
-        self._alerts_table.column("mode", width=80, stretch=False)
+        self._alerts_table.column("mode", width=60, stretch=False)
         self._alerts_table.heading("source", text="Src")
-        self._alerts_table.column("source", width=100, stretch=False)
+        self._alerts_table.column("source", width=80, stretch=False)
         self._alerts_table.heading("reference", text="Ref")
         self._alerts_table.column("reference", width=100, stretch=False)
         self._alerts_table.heading("qth", text="QTH")
@@ -54,12 +90,43 @@ class HamAlertClientGUI:
         self._auto_scroll_timeout = tk.StringVar()
         self._auto_scroll_timeout_input = ttk.Entry(self._menu_frame, textvariable=self._auto_scroll_timeout, state="disabled", foreground="black")
 
+        self._filter_source_label = ttk.Label(self._menu_frame, text="Source:")
+
+        self._filter_source = {
+            source: tk.BooleanVar(value=True)
+            for source in SOURCES
+        }
+        self._filter_source_checkboxes = {
+            source: ttk.Checkbutton(self._menu_frame, text=source, variable=self._filter_source[source])
+            for source in SOURCES
+        }
+
+        self._filter_source_pota = tk.BooleanVar(value=True)
+        self._filter_source_pota_checkbox = ttk.Checkbutton(self._menu_frame, text="pota", variable=self._filter_source_pota)
+
+        self._filter_band_label = ttk.Label(self._menu_frame, text="Band:")
+
+        self._filter_band = {
+            band: tk.BooleanVar(value=config.FILTER_BAND.get(band, "True"))
+            for band in BANDS
+        }
+        self._filter_band_checkboxes = {
+            band: ttk.Checkbutton(self._menu_frame, text=band, variable=self._filter_band[band])
+            for band in BANDS
+        }
+
         self._menu_frame.pack(side="left", fill="y", expand=False)
         self._alerts_frame.pack(side="left", fill="both", expand=True)
         self._alerts_table.pack(side="left", fill="both", expand=True)
         self._alerts_scrollbar.pack(side="left", fill="y")
-        self._auto_scroll_checkbox.pack(side="top")
-        self._auto_scroll_timeout_input.pack(side="top")
+        self._auto_scroll_checkbox.pack(side="top", anchor="w")
+        self._auto_scroll_timeout_input.pack(side="top", anchor="w")
+        self._filter_source_label.pack(side="top")
+        for source in SOURCES:
+            self._filter_source_checkboxes[source].pack(side="top", anchor="w")
+        self._filter_band_label.pack(side="top")
+        for band in BANDS:
+            self._filter_band_checkboxes[band].pack(side="top", anchor="w")
 
         self._action_queue = Queue()
         self._action_event = "<<action>>"
@@ -84,7 +151,7 @@ class HamAlertClientGUI:
     def do_select_alert(self, event):
         index, = self._alerts_table.selection()
         data = self._alerts_table.item(index)
-        time, callsign, frequency, mode, *_ = data["values"]
+        time, callsign, band, frequency, mode, *_ = data["values"]
         frequency = int(float(frequency) * 1E6)
 
         self._rig.set_freq(Hamlib.RIG_VFO_A, frequency)
@@ -127,6 +194,7 @@ class HamAlertClientGUI:
     def do_add_alert(self, alert):
         time_str = alert.get("time", "Unknown")
         callsign = alert.get("fullCallsign", "Unknown")
+        band = alert.get("band", "Unknown")
         frequency = alert.get("frequency", "Unknown")
         mode = alert.get("mode", "Unknown")
         source = alert.get("source", "Unknown")
@@ -146,6 +214,7 @@ class HamAlertClientGUI:
         self._alerts_table.insert(parent="", index=0, values=(
             timestamp.strftime("%Y-%m-%d %H:%M"),
             callsign,
+            band,
             frequency,
             mode,
             source,
@@ -192,8 +261,16 @@ class HamAlertClientGUI:
                 self._send_action("do_scroll")
 
     def _watch_alerts_job(self):
-        with ham_alert_client.Client(config.USERNAME, config.PASSWORD, sources_filter=config.SOURCES_FILTER) as client:
+        with ham_alert_client.Client(config.USERNAME, config.PASSWORD) as client:
             for alert in client:
+                band = alert["band"]
+                if not self._filter_band[band].get():
+                    continue
+
+                source = alert["source"]
+                if not self._filter_source[source].get():
+                    continue
+
                 self._send_action("do_add_alert", alert=alert)
 
     def start(self):
