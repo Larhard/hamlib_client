@@ -268,10 +268,15 @@ class HamAlertClientGUI:
             qth += ": " + alert.get("wwffName", "Unknown")
             ref = alert.get("wwffRef", "Unknown")
 
-        timestamp = self._get_timestamp(time_str)
+        try:
+            timestamp = self._get_timestamp(time_str)
+            timestamp_str = timestamp.strftime("%Y-%m-%d %H:%M")
+        except:
+            timestamp = None
+            timestamp_str = time_str
 
         self._alerts_table.insert(parent="", index=0, values=(
-            timestamp.strftime("%Y-%m-%d %H:%M"),
+            timestamp_str,
             callsign,
             band,
             frequency,
@@ -281,7 +286,8 @@ class HamAlertClientGUI:
             qth,
         ))
 
-        self._update_timeout(timestamp)
+        if timestamp is not None:
+            self._update_timeout(timestamp)
 
     def do_scroll(self):
         selection = self._alerts_table.selection()
