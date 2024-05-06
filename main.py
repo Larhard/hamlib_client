@@ -13,6 +13,8 @@ from queue import Queue
 import Hamlib
 
 import ham_alert_client
+import wavelog_api
+
 import config
 
 
@@ -184,20 +186,41 @@ class HamAlertClientGUI:
         self._watch_hamlib_thread = Thread(target=self._watch_hamlib_job, daemon=True)
         self._auto_scroll_thread = Thread(target=self._auto_scroll_job, daemon=True)
 
+        # Wavelog
+
+        self._last_band = None
+        self._wavelog = wavelog_api.Wavelog(
+                url = config.WAVELOG_URL,
+                api_key = config.WAVELOG_API_KEY,
+                radio_name = "HamAlert Client",
+                )
+
     def do_select_alert(self, event):
         index, = self._alerts_table.selection()
         data = self._alerts_table.item(index)
-        time, callsign, band, frequency, mode, *_ = data["values"]
+        alert_time, callsign, band, frequency, mode, *_ = data["values"]
         frequency = int(float(frequency) * 1E6)
 
         self._rig.set_freq(Hamlib.RIG_VFO_A, frequency)
         self._rig.set_vfo(Hamlib.RIG_VFO_A)
 
+        wavelog_mode = mode.upper()
         if mode.upper() == "SSB":
             mode = "USB" if frequency >= 1E7 else "LSB"
 
         mode_id = getattr(Hamlib, "RIG_MODE_{}".format(mode.upper()))
         self._rig.set_mode(mode_id, -1)
+
+        if self._last_band != band:  # Workaround for band breaking the frequency
+            self._wavelog.post_config(frequency=frequency+1000, mode=wavelog_mode)
+            def post():
+                time.sleep(5)
+                self._wavelog.post_config(frequency=frequency, mode=wavelog_mode)
+            Thread(target=post).start()
+        else:
+            self._wavelog.post_config(frequency=frequency, mode=wavelog_mode)
+
+        self._last_band = band
 
     def _get_timestamp(self, time_str):
         time = datetime.time.fromisoformat(time_str)
